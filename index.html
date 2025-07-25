@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nginx vs. FrankenPHP Performance Comparison</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Plotly.js for charting -->
+    <script src="https://cdn.plot.ly/plotly-3.0.1.min.js" charset="utf-8"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .chart-container {
+            border: 1px solid #e2e8f0;
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+        pre {
+            background-color: #1f2937; /* gray-800 */
+            color: #d1d5db; /* gray-300 */
+            padding: 1rem;
+            border-radius: 0.5rem;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        /* Print-specific styles */
+        @media print {
+            body {
+                background-color: white !important;
+                color: black !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            .no-print {
+                display: none !important;
+            }
+            .chart-container, .bg-white {
+                box-shadow: none !important;
+                border: 1px solid #ccc !important;
+                background-color: white !important;
+                page-break-inside: avoid;
+            }
+            h1, h2, h3, p, strong, span, li, div {
+                color: black !important;
+            }
+            pre {
+                background-color: #eee !important;
+                color: #000 !important;
+                border: 1px solid #ccc;
+            }
+            .plot-container .bg, .plot-container .plot-bg {
+                fill: white !important;
+            }
+            .plot-container .gridlayer .grid path, .plot-container .zeroline {
+                stroke: #ccc !important;
+            }
+            .plot-container .layer-below .xtick, .plot-container .layer-below .ytick {
+                stroke: #000 !important;
+            }
+            .plot-container text {
+                fill: black !important;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+    <div class="container mx-auto p-4 md:p-8">
+
+        <div class="mb-8 text-center no-print">
+            <button onclick="window.print()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-lg shadow-md transition-transform transform hover:scale-105">
+                Print Report
+            </button>
+        </div>
+
+        <header class="text-center mb-10">
+            <h1 class="text-4xl font-bold text-gray-900">Nginx vs. FrankenPHP (Worker vs. Thread)</h1>
+            <p class="text-xl text-gray-600 mt-2">Performance Benchmark on a Sylius Application</p>
+        </header>
+
+        <div class="mb-12 bg-white p-6 rounded-lg shadow-md border border-gray-200">
+            <h2 class="text-2xl font-semibold mb-4 text-gray-800 border-b pb-2">Test Environment</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6 text-gray-700">
+                <div>
+                    <h3 class="font-semibold text-lg">Compute Server</h3>
+                    <p>Scaleway DEV1-S (2 vCPUs, 2 GB RAM)</p>
+                    <h3 class="font-semibold text-lg mt-4">Application</h3>
+                    <p>Sylius Standard (PHP 8.3)</p>
+                </div>
+                <div>
+                    <h3 class="font-semibold text-lg">Database Server</h3>
+                    <p>Scaleway DB-DEV-S (2 vCPUs, 2 GB RAM, MySQL)</p>
+                    <h3 class="font-semibold text-lg mt-4">Benchmark Tool</h3>
+                    <p>wrk on a separate DEV1-S instance</p>
+                </div>
+            </div>
+             <div class="mt-6 pt-4 border-t">
+                <h3 class="font-semibold text-lg mb-2">Configurations</h3>
+                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <p><span class="font-medium">Nginx + PHP-FPM:</span> pm.max_children = 15</p>
+                    <p><span class="font-medium">FrankenPHP (Worker Mode):</span> worker.num = 36</p>
+                    <p><span class="font-medium">FrankenPHP (Thread Mode):</span> num_threads = 36</p>
+                </div>
+            </div>
+             <div class="mt-6 pt-4 border-t">
+                <h3 class="font-semibold text-lg mb-2">Warmup Procedure</h3>
+                <p class="text-gray-700">Before each 30-second benchmark, a warmup phase was executed. This involved calling the API endpoint with `curl` to ensure application caches were primed, followed by a preliminary 10-second `wrk` run with 100 connections.</p>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div class="chart-container bg-white">
+                <h2 class="text-xl font-semibold text-center mb-4">Requests per Second</h2>
+                <div id="reqsPerSecChart"></div>
+            </div>
+            <div class="chart-container bg-white">
+                <h2 class="text-xl font-semibold text-center mb-4">Average Latency (ms)</h2>
+                <div id="avgLatencyChart"></div>
+            </div>
+            <div class="chart-container bg-white">
+                <h2 class="text-xl font-semibold text-center mb-4">Latency Distribution @ 100 Connections</h2>
+                <div id="latencyDist100Chart"></div>
+            </div>
+            <div class="chart-container bg-white">
+                <h2 class="text-xl font-semibold text-center mb-4">Latency Distribution @ 200 Connections</h2>
+                <div id="latencyDist200Chart"></div>
+            </div>
+        </div>
+
+        <div class="mt-12 bg-white p-6 rounded-lg shadow-md border border-gray-200">
+            <h2 class="text-2xl font-semibold mb-4 text-gray-800 border-b pb-2">Benchmark Summary</h2>
+            <div class="space-y-4 text-gray-700">
+                <p>The benchmarks reveal a stark difference in performance between the server configurations, particularly highlighting the strength of FrankenPHP's worker mode.</p>
+                <ul class="list-disc list-inside space-y-2">
+                    <li>
+                        <span class="font-semibold">FrankenPHP Worker Mode Leads Significantly:</span> This configuration vastly outperformed the others, handling nearly <strong class="text-green-600">3x more requests</strong> per second and showing dramatically lower latency across both 100 and 200 connection tests.
+                    </li>
+                    <li>
+                        <span class="font-semibold">Nginx vs. FrankenPHP Thread Mode:</span> The performance difference between the traditional Nginx/PHP-FPM setup and FrankenPHP's thread-based mode is negligible.
+                    </li>
+                    <li>
+                        <span class="font-semibold">Performance Under Pressure:</span> FrankenPHP in worker mode was the only configuration that handled the increased load from 100 to 200 connections gracefully, maintaining high throughput. In contrast, both Nginx and FrankenPHP's thread mode saw latency skyrocket to unusable levels, with throughput remaining flat.
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="mt-12">
+            <h2 class="text-2xl font-semibold mb-4 text-gray-800 border-b pb-2">Raw `wrk` Results</h2>
+            <pre><code>
+### FrankenPHP (Thread Mode, num_threads = 36) ###
+
+# 100 Connections
+root@attacker:~# wrk -t4 -c100 -d30s --latency --timeout 20s http://51.159.157.40/api/v2/shop/products/Summer_Picnic_Charm
+Running 30s test @ http://51.159.157.40/api/v2/shop/products/Summer_Picnic_Charm
+  4 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     4.56s   852.58ms   5.99s    87.38%
+    Req/Sec    10.15      9.58    50.00     75.00%
+  Latency Distribution
+     50%    4.72s
+     75%    5.10s
+     90%    5.29s
+     99%    5.78s
+  610 requests in 30.05s, 1.95MB read
+Requests/sec:     20.30
+Transfer/sec:     66.30KB
+
+# 200 Connections
+root@attacker:~# wrk -t4 -c200 -d30s --latency --timeout 20s http://51.159.157.40/api/v2/shop/products/Summer_Picnic_Charm
+Running 30s test @ http://51.159.157.40/api/v2/shop/products/Summer_Picnic_Charm
+  4 threads and 200 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     8.34s     2.52s   10.68s    82.23%
+    Req/Sec    14.31     14.70    90.00     85.53%
+  Latency Distribution
+     50%    9.58s
+     75%    9.78s
+     90%    9.97s
+     99%   10.31s
+  602 requests in 30.05s, 1.91MB read
+Requests/sec:     20.03
+Transfer/sec:     65.11KB
+
+---
+
+### Nginx + PHP-FPM ###
+
+# 100 Connections
+root@attacker:~# wrk -t4 -c100 -d30s --latency --timeout 20s http://51.159.157.40/api/v2/shop/products/Summer_Picnic_Charm
+Running 30s test @ http://51.159.157.40/api/v2/shop/products/Summer_Picnic_Charm
+  4 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     4.27s   901.33ms   4.98s    89.83%
+    Req/Sec    14.72     10.81    50.00     74.57%
+  Latency Distribution
+     50%    4.54s
+     75%    4.63s
+     90%    4.72s
+     99%    4.87s
+  649 requests in 30.05s, 2.06MB read
+Requests/sec:     21.60
+Transfer/sec:     70.35KB
+
+# 200 Connections
+root@attacker:~# wrk -t4 -c200 -d30s --latency --timeout 20s http://51.159.157.40/api/v2/shop/products/Summer_Picnic_Charm
+Running 30s test @ http://51.159.157.40/api/v2/shop/products/Summer_Picnic_Charm
+  4 threads and 200 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     7.77s     2.46s    9.45s    83.08%
+    Req/Sec    15.02     10.39    60.00     78.49%
+  Latency Distribution
+     50%    9.04s
+     75%    9.11s
+     90%    9.18s
+     99%    9.30s
+  656 requests in 30.06s, 2.09MB read
+Requests/sec:     21.82
+Transfer/sec:     71.09KB
+
+---
+
+### FrankenPHP (Worker Mode, worker.num = 36) ###
+
+# 100 Connections
+root@attacker:~# wrk -t4 -c100 -d30s --latency --timeout 20s http://51.159.157.40/api/v2/shop/products/Summer_Picnic_Charm
+Running 30s test @ http://51.159.157.40/api/v2/shop/products/Summer_Picnic_Charm
+  4 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     1.69s   321.95ms   2.57s    71.90%
+    Req/Sec    20.57     19.25   131.00     80.33%
+  Latency Distribution
+     50%    1.65s
+     75%    1.93s
+     90%    2.11s
+     99%    2.36s
+  1733 requests in 30.06s, 5.46MB read
+Requests/sec:     57.65
+Transfer/sec:   186.07KB
+
+# 200 Connections
+root@attacker:~# wrk -t4 -c200 -d30s --latency --timeout 20s http://51.159.157.40/api/v2/shop/products/Summer_Picnic_Charm
+Running 30s test @ http://51.159.157.40/api/v2/shop/products/Summer_Picnic_Charm
+  4 threads and 200 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     2.92s   577.77ms   3.89s    78.93%
+    Req/Sec    24.44     26.24   200.00     88.45%
+  Latency Distribution
+     50%    3.02s
+     75%    3.28s
+     90%    3.50s
+     99%    3.71s
+  1932 requests in 30.05s, 6.09MB read
+Requests/sec:     64.29
+Transfer/sec:   207.51KB
+            </code></pre>
+        </div>
+
+    </div>
+
+    <script>
+        // --- Data from wrk tests ---
+        const data = {
+            nginx: {
+                '100': { reqsPerSec: 21.60, avgLatency: 4270, p50: 4540, p75: 4630, p90: 4720, p99: 4870 },
+                '200': { reqsPerSec: 21.82, avgLatency: 7770, p50: 9040, p75: 9110, p90: 9180, p99: 9300 }
+            },
+            frankenWorker: {
+                '100': { reqsPerSec: 57.65, avgLatency: 1690, p50: 1650, p75: 1930, p90: 2110, p99: 2360 },
+                '200': { reqsPerSec: 64.29, avgLatency: 2920, p50: 3020, p75: 3280, p90: 3500, p99: 3710 }
+            },
+            frankenNoWorker: {
+                '100': { reqsPerSec: 20.30, avgLatency: 4560, p50: 4720, p75: 5100, p90: 5290, p99: 5780 },
+                '200': { reqsPerSec: 20.03, avgLatency: 8340, p50: 9580, p75: 9780, p90: 9970, p99: 10310 }
+            }
+        };
+
+        const connections = ['100 Connections', '200 Connections'];
+        const plotLayout = {
+            barmode: 'group',
+            margin: { t: 20, b: 40, l: 60, r: 20 },
+            legend: { x: 0.01, y: 0.99, bgcolor: 'rgba(255,255,255,0.7)', bordercolor: '#e2e8f0', borderwidth: 1 },
+            yaxis: { gridcolor: '#e2e8f0', zerolinecolor: '#cbd5e1' },
+            xaxis: { zerolinecolor: '#cbd5e1' },
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            plot_bgcolor: 'rgba(0,0,0,0)',
+            font: { family: 'Inter, sans-serif', color: '#4a5568' }
+        };
+
+        // --- Chart 1: Requests per Second ---
+        Plotly.newPlot('reqsPerSecChart', [
+            { x: connections, y: [data.nginx['100'].reqsPerSec, data.nginx['200'].reqsPerSec], name: 'Nginx + FPM', type: 'bar', marker: { color: '#63b3ed' } }, // blue-400
+            { x: connections, y: [data.frankenNoWorker['100'].reqsPerSec, data.frankenNoWorker['200'].reqsPerSec], name: 'FrankenPHP (Thread)', type: 'bar', marker: { color: '#f56565' } }, // red-500
+            { x: connections, y: [data.frankenWorker['100'].reqsPerSec, data.frankenWorker['200'].reqsPerSec], name: 'FrankenPHP (Worker)', type: 'bar', marker: { color: '#48bb78' } } // green-500
+        ], { ...plotLayout, yaxis: { ...plotLayout.yaxis, title: 'Requests/sec' } }, { responsive: true });
+
+        // --- Chart 2: Average Latency ---
+        Plotly.newPlot('avgLatencyChart', [
+            { x: connections, y: [data.nginx['100'].avgLatency, data.nginx['200'].avgLatency], name: 'Nginx + FPM', type: 'bar', marker: { color: '#63b3ed' } },
+            { x: connections, y: [data.frankenNoWorker['100'].avgLatency, data.frankenNoWorker['200'].avgLatency], name: 'FrankenPHP (Thread)', type: 'bar', marker: { color: '#f56565' } },
+            { x: connections, y: [data.frankenWorker['100'].avgLatency, data.frankenWorker['200'].avgLatency], name: 'FrankenPHP (Worker)', type: 'bar', marker: { color: '#48bb78' } }
+        ], { ...plotLayout, yaxis: { ...plotLayout.yaxis, title: 'Latency (ms)' } }, { responsive: true });
+
+        // --- Chart 3: Latency Distribution @ 100 Connections ---
+        const percentiles = ['50%', '75%', '90%', '99%'];
+        Plotly.newPlot('latencyDist100Chart', [
+            { x: percentiles, y: [data.nginx['100'].p50, data.nginx['100'].p75, data.nginx['100'].p90, data.nginx['100'].p99], name: 'Nginx + FPM', type: 'bar', marker: { color: '#63b3ed' } },
+            { x: percentiles, y: [data.frankenNoWorker['100'].p50, data.frankenNoWorker['100'].p75, data.frankenNoWorker['100'].p90, data.frankenNoWorker['100'].p99], name: 'FrankenPHP (Thread)', type: 'bar', marker: { color: '#f56565' } },
+            { x: percentiles, y: [data.frankenWorker['100'].p50, data.frankenWorker['100'].p75, data.frankenWorker['100'].p90, data.frankenWorker['100'].p99], name: 'FrankenPHP (Worker)', type: 'bar', marker: { color: '#48bb78' } }
+        ], { ...plotLayout, yaxis: { ...plotLayout.yaxis, title: 'Latency (ms)' } }, { responsive: true });
+
+        // --- Chart 4: Latency Distribution @ 200 Connections ---
+        Plotly.newPlot('latencyDist200Chart', [
+            { x: percentiles, y: [data.nginx['200'].p50, data.nginx['200'].p75, data.nginx['200'].p90, data.nginx['200'].p99], name: 'Nginx + FPM', type: 'bar', marker: { color: '#63b3ed' } },
+            { x: percentiles, y: [data.frankenNoWorker['200'].p50, data.frankenNoWorker['200'].p75, data.frankenNoWorker['200'].p90, data.frankenNoWorker['200'].p99], name: 'FrankenPHP (Thread)', type: 'bar', marker: { color: '#f56565' } },
+            { x: percentiles, y: [data.frankenWorker['200'].p50, data.frankenWorker['200'].p75, data.frankenWorker['200'].p90, data.frankenWorker['200'].p99], name: 'FrankenPHP (Worker)', type: 'bar', marker: { color: '#48bb78' } }
+        ], { ...plotLayout, yaxis: { ...plotLayout.yaxis, title: 'Latency (ms)' } }, { responsive: true });
+
+    </script>
+</body>
+</html>

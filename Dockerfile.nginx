@@ -1,0 +1,9 @@
+FROM nginx:stable-alpine
+
+# Copy custom Nginx configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Copy public directory
+COPY public/ /app/public/
+
+WORKDIR /app/public

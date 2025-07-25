@@ -1,0 +1,55 @@
+FROM dunglas/frankenphp:php8.3
+
+# RUN apt-get update && apt-get install -y \
+#     curl \
+#     gnupg2
+    # && apt-get remove -y blackfire-agent blackfire-php \
+    # && rm -r /etc/blackfire
+
+# ADD blackfire.sh /etc/blackfire.sh
+# RUN chmod +x /etc/blackfire.sh \
+#     && mkdir /var/run/blackfire \
+#     && bash -c /etc/blackfire.sh \
+#     && blackfire php:install
+
+# add additional extensions here:
+RUN install-php-extensions \
+	pdo_mysql \
+	gd \
+	intl \
+	exif \
+	zip \
+	opcache
+
+# ENV APP_RUNTIME=Runtime\\FrankenPhpSymfony\\Runtime
+ENV APP_ENV=prod
+# ENV FRANKENPHP_CONFIG="worker ./public/index.php"
+# ENV CADDY_GLOBAL_OPTIONS=debug
+# ENV CADDY_GLOBAL_OPTIONS="auto_https off"
+# ENV SERVER_NAME=":8080"
+
+RUN cp $PHP_INI_DIR/php.ini-production $PHP_INI_DIR/php.ini
+COPY php.ini /usr/local/etc/php/conf.d/php-tweaks.ini
+
+# Copy application files
+COPY composer.json composer.lock /app/
+COPY package.json symfony.lock /app/
+
+COPY node_modules /app/node_modules
+COPY vendor/ /app/vendor
+
+# 3. Configuration files - change rarely
+COPY config/ /app/config/
+
+COPY assets/ /app/assets/
+COPY themes/ /app/themes/
+COPY public/ /app/public/
+
+COPY .env /app/
+COPY bin/ /app/bin/
+COPY src/ /app/src/
+COPY templates/ /app/templates/
+COPY tests/ /app/tests/
+COPY features/ /app/features/
+COPY migrations/ /app/migrations/
+COPY translations/ /app/translations/
